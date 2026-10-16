@@ -44,3 +44,6 @@ response.bin
 # Gradle cache and build output
 .gradle/
 .gradle
+
+# Local startup logs
+startup-log.txt

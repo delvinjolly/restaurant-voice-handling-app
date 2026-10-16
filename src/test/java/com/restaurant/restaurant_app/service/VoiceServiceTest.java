@@ -1,4 +1,4 @@
-package com.restaurant.restaurant_app.service;
+﻿package com.restaurant.restaurant_app.service;
 
 import com.restaurant.restaurant_app.dto.VoiceRequest;
 import com.restaurant.restaurant_app.dto.VoiceResponse;
@@ -25,6 +25,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import com.restaurant.restaurant_app.entity.Booking;
+import java.time.LocalDate;
+import java.time.LocalTime;
+
 
 @ExtendWith(MockitoExtension.class)
 class VoiceServiceTest {
@@ -172,6 +176,177 @@ class VoiceServiceTest {
                 com.restaurant.restaurant_app.entity.Order.class
         ));
     }
+ @Test
+ void successfulBookingReturnsBookingConfirmed() {
+        Restaurant restaurant = new Restaurant();
+
+        LocalDate bookingDate = LocalDate.now().plusDays(1);
+        LocalTime bookingTime = LocalTime.of(19, 30);
+   when(bookingRepository
+            .existsByRestaurantIdAndBookingDateAndBookingTime(
+                    1L, bookingDate, bookingTime))
+            .thenReturn(false);
+
+    when(restaurantRepository.findById(1L))
+            .thenReturn(Optional.of(restaurant));
+
+    VoiceRequest request = createTestRequest("book a table");
+    request.setBookingDate(bookingDate.toString());
+    request.setBookingTime(bookingTime.toString());
+    request.setNumberOfGuests(4);
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_CONFIRMED", response.getIntent());
+
+    verify(bookingRepository).save(any(Booking.class));
+}
+
+@Test
+void occupiedBookingSlotReturnsBookingError() {
+    LocalDate bookingDate = LocalDate.now().plusDays(1);
+    LocalTime bookingTime = LocalTime.of(19, 30);
+
+    when(bookingRepository
+            .existsByRestaurantIdAndBookingDateAndBookingTime(
+                    1L, bookingDate, bookingTime))
+            .thenReturn(true);
+
+    VoiceRequest request = createTestRequest("book a table");
+    request.setBookingDate(bookingDate.toString());
+    request.setBookingTime(bookingTime.toString());
+    request.setNumberOfGuests(4);
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_ERROR", response.getIntent());
+    assertEquals(
+            "That time slot is already booked.",
+            response.getMessage()
+    );
+
+    verify(bookingRepository, never()).save(any(Booking.class));
+}
+
+@Test
+void missingBookingDateReturnsBookingError() {
+    VoiceRequest request = createTestRequest("book a table");
+    request.setBookingTime("19:30");
+    request.setNumberOfGuests(4);
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_ERROR", response.getIntent());
+    assertEquals(
+            "Please specify the booking date, for example: today or tomorrow.",
+            response.getMessage()
+    );
+
+    verify(bookingRepository, never()).save(any(Booking.class));
+}
+
+@Test
+void missingGuestCountReturnsBookingError() {
+    VoiceRequest request = createTestRequest("book a table");
+    request.setBookingDate(LocalDate.now().plusDays(1).toString());
+    request.setBookingTime("19:30");
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_ERROR", response.getIntent());
+    assertEquals(
+            "Please specify the number of guests, for example: 4 people.",
+            response.getMessage()
+    );
+
+    verify(bookingRepository, never()).save(any(Booking.class));
+}
+
+
+@Test
+void moreThanFiftyGuestsReturnsBookingError() {
+    VoiceRequest request = createTestRequest("book a table");
+    request.setBookingDate(LocalDate.now().plusDays(1).toString());
+    request.setBookingTime("19:30");
+    request.setNumberOfGuests(51);
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_ERROR", response.getIntent());
+    assertEquals(
+            "Number of guests cannot exceed 50.",
+            response.getMessage()
+    );
+
+    verify(bookingRepository, never()).save(any(Booking.class));
+}
+
+@Test
+void fiftyGuestsCanBeBooked() {
+    Restaurant restaurant = new Restaurant();
+    LocalDate bookingDate = LocalDate.now().plusDays(1);
+    LocalTime bookingTime = LocalTime.of(19, 30);
+
+    when(bookingRepository
+            .existsByRestaurantIdAndBookingDateAndBookingTime(
+                    1L, bookingDate, bookingTime))
+            .thenReturn(false);
+
+    when(restaurantRepository.findById(1L))
+            .thenReturn(Optional.of(restaurant));
+
+    VoiceRequest request = createTestRequest("book a table");
+    request.setBookingDate(bookingDate.toString());
+    request.setBookingTime(bookingTime.toString());
+    request.setNumberOfGuests(50);
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_CONFIRMED", response.getIntent());
+    verify(bookingRepository).save(any(Booking.class));
+}
+
+@Test
+void bookingForYesterdayReturnsBookingError() {
+    VoiceRequest request = createTestRequest("book a table yesterday");
+    request.setBookingTime("19:30");
+    request.setNumberOfGuests(4);
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_ERROR", response.getIntent());
+    assertEquals(
+            "You cannot book a table for a past date. Please choose today or a future date.",
+            response.getMessage()
+    );
+
+    verify(bookingRepository, never()).save(any(Booking.class));
+}
+
+@Test
+void bookingForTodayCanBeConfirmed() {
+    Restaurant restaurant = new Restaurant();
+    LocalDate bookingDate = LocalDate.now();
+    LocalTime bookingTime = LocalTime.of(19, 30);
+
+    when(bookingRepository
+            .existsByRestaurantIdAndBookingDateAndBookingTime(
+                    1L, bookingDate, bookingTime))
+            .thenReturn(false);
+
+    when(restaurantRepository.findById(1L))
+            .thenReturn(Optional.of(restaurant));
+
+    VoiceRequest request = createTestRequest("book a table");
+    request.setBookingDate(bookingDate.toString());
+    request.setBookingTime(bookingTime.toString());
+    request.setNumberOfGuests(4);
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_CONFIRMED", response.getIntent());
+    verify(bookingRepository).save(any(Booking.class));
+}
 
     private void assertQuantityError(
             String message,
