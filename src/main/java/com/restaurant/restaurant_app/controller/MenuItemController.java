@@ -44,13 +44,14 @@ public class MenuItemController {
 
         return menuItemRepository.save(menuItem);
     }
-
     @PutMapping("/{menuItemId}/availability")
     public MenuItem updateAvailability(
+            @PathVariable Long restaurantId,
             @PathVariable Long menuItemId,
             @RequestParam boolean available) {
 
-        MenuItem menuItem = menuItemRepository.findById(menuItemId)
+        MenuItem menuItem = menuItemRepository
+                .findByIdAndRestaurantId(menuItemId, restaurantId)
                 .orElseThrow(() ->
                         new RuntimeException("Menu item not found"));
 
@@ -58,4 +59,5 @@ public class MenuItemController {
 
         return menuItemRepository.save(menuItem);
     }
+
 }
