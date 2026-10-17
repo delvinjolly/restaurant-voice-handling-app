@@ -30,7 +30,7 @@ public class BookingController {
     public List<Booking> getAllBookings(
             @PathVariable Long restaurantId) {
 
-        return bookingRepository.findAll();
+       return bookingRepository.findByRestaurant_Id(restaurantId);
     }
 
     @PostMapping
@@ -60,32 +60,41 @@ booking.setStatus("PENDING");
 return bookingRepository.save(booking);
     }
 
-    @GetMapping("/{bookingId}")
-    public Booking getBooking(
-            @PathVariable Long bookingId) {
+@GetMapping("/{bookingId}")
+public Booking getBooking(
+        @PathVariable Long restaurantId,
+        @PathVariable Long bookingId) {
 
-        return bookingRepository.findById(bookingId)
-                .orElseThrow(() -> new RuntimeException("Booking not found"));
-    }
+    return bookingRepository.findByIdAndRestaurant_Id(
+                    bookingId, restaurantId)
+            .orElseThrow(() -> new RuntimeException("Booking not found"));
+}
     @PutMapping("/{bookingId}/status")
+
 public Booking updateBookingStatus(
+        @PathVariable Long restaurantId,
         @PathVariable Long bookingId,
         @RequestParam String status) {
 
-    Booking booking = bookingRepository.findById(bookingId)
+    Booking booking = bookingRepository.findByIdAndRestaurant_Id(
+                    bookingId, restaurantId)
             .orElseThrow(() -> new RuntimeException("Booking not found"));
 
-    String newStatus = status.toUpperCase();
+    if (status == null || status.isBlank()) {
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST, "Booking status is required");
+    }
+
+    String newStatus = status.trim().toUpperCase(java.util.Locale.ROOT);
 
     if (!newStatus.equals("PENDING")
             && !newStatus.equals("CONFIRMED")
             && !newStatus.equals("CANCELLED")) {
-
-        throw new RuntimeException("Invalid booking status");
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST, "Invalid booking status");
     }
 
     booking.setStatus(newStatus);
-
     return bookingRepository.save(booking);
 }
 }
