@@ -83,60 +83,43 @@ public class OrderController {
 
         return orderRepository.save(savedOrder);
     }
-        @GetMapping("/{orderId}")
-    public Order getOrder(@PathVariable Long orderId) {
 
-        return orderRepository.findById(orderId)
+    @GetMapping("/{orderId}")
+    public Order getOrder(
+            @PathVariable Long restaurantId,
+            @PathVariable Long orderId) {
+
+        return orderRepository
+                .findByIdAndRestaurant_Id(orderId, restaurantId)
                 .orElseThrow(() -> new RuntimeException("Order not found"));
     }
-    @GetMapping("/test")
-public String test() {
-    return "OrderController is working";
-}
+
     @PutMapping("/{orderId}/status")
-public Order updateOrderStatus(
-        @PathVariable Long orderId,
-        @RequestParam String status) {
+    public Order updateOrderStatus(
+            @PathVariable Long restaurantId,
+            @PathVariable Long orderId,
+            @RequestParam String status) {
 
-    Order order = orderRepository.findById(orderId)
-            .orElseThrow(() -> new RuntimeException("Order not found"));
+        Order order = orderRepository
+                .findByIdAndRestaurant_Id(orderId, restaurantId)
+                .orElseThrow(() -> new RuntimeException("Order not found"));
 
-    String newStatus = status.toUpperCase();
-
-if (!newStatus.equals("PENDING")
-        && !newStatus.equals("CONFIRMED")
-        && !newStatus.equals("PREPARING")
-        && !newStatus.equals("READY")
-        && !newStatus.equals("COMPLETED")) {
-
-    throw new RuntimeException("Invalid order status");
-}
-
-order.setStatus(newStatus);
-
-    return orderRepository.save(order);
-}
-
-    public static class CreateOrderRequest {
-
-        private String customerName;
-        private List<OrderItemRequest> items;
-
-        public String getCustomerName() {
-            return customerName;
+        if (status == null || status.isBlank()) {
+            throw new RuntimeException("Order status is required");
         }
 
-        public void setCustomerName(String customerName) {
-            this.customerName = customerName;
+        String newStatus = status.trim().toUpperCase(java.util.Locale.ROOT);
+
+        if (!newStatus.equals("PENDING")
+                && !newStatus.equals("CONFIRMED")
+                && !newStatus.equals("PREPARING")
+                && !newStatus.equals("READY")
+                && !newStatus.equals("COMPLETED")) {
+            throw new RuntimeException("Invalid order status");
         }
 
-        public List<OrderItemRequest> getItems() {
-            return items;
-        }
-
-        public void setItems(List<OrderItemRequest> items) {
-            this.items = items;
-        }
+        order.setStatus(newStatus);
+        return orderRepository.save(order);
     }
 
     public static class OrderItemRequest {
@@ -158,6 +141,27 @@ order.setStatus(newStatus);
 
         public void setQuantity(int quantity) {
             this.quantity = quantity;
+        }
+    }
+    public static class CreateOrderRequest {
+
+        private String customerName;
+        private List<OrderItemRequest> items;
+
+        public String getCustomerName() {
+            return customerName;
+        }
+
+        public void setCustomerName(String customerName) {
+            this.customerName = customerName;
+        }
+
+        public List<OrderItemRequest> getItems() {
+            return items;
+        }
+
+        public void setItems(List<OrderItemRequest> items) {
+            this.items = items;
         }
     }
 }
