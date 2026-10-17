@@ -47,3 +47,6 @@ response.bin
 
 # Local startup logs
 startup-log.txt
+
+# Temporary backup files
+*.bak
