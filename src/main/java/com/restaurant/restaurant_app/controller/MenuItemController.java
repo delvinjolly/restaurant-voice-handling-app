@@ -4,6 +4,8 @@ import com.restaurant.restaurant_app.entity.MenuItem;
 import com.restaurant.restaurant_app.entity.Restaurant;
 import com.restaurant.restaurant_app.repository.MenuItemRepository;
 import com.restaurant.restaurant_app.repository.RestaurantRepository;
+import com.restaurant.restaurant_app.exception.MenuItemNotFoundException;
+import com.restaurant.restaurant_app.exception.RestaurantNotFoundException;
 
 import org.springframework.web.bind.annotation.*;
 
@@ -38,8 +40,7 @@ public class MenuItemController {
 
         Restaurant restaurant = restaurantRepository.findById(restaurantId)
                 .orElseThrow(() ->
-                        new RuntimeException("Restaurant not found"));
-
+        new RestaurantNotFoundException("Restaurant not found"));
         menuItem.setRestaurant(restaurant);
 
         return menuItemRepository.save(menuItem);
@@ -53,7 +54,7 @@ public class MenuItemController {
         MenuItem menuItem = menuItemRepository
                 .findByIdAndRestaurantId(menuItemId, restaurantId)
                 .orElseThrow(() ->
-                        new RuntimeException("Menu item not found"));
+        new MenuItemNotFoundException("Menu item not found"));
 
         menuItem.setAvailable(available);
 

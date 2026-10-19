@@ -4,13 +4,12 @@ import com.restaurant.restaurant_app.entity.Booking;
 import com.restaurant.restaurant_app.entity.Restaurant;
 import com.restaurant.restaurant_app.repository.BookingRepository;
 import com.restaurant.restaurant_app.repository.RestaurantRepository;
-
+import com.restaurant.restaurant_app.exception.BookingNotFoundException;
 import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
-
+import com.restaurant.restaurant_app.exception.RestaurantNotFoundException;
 @RestController
 @RequestMapping("/api/restaurants/{restaurantId}/bookings")
 public class BookingController {
@@ -39,7 +38,8 @@ public class BookingController {
             @RequestBody Booking booking) {
 
         Restaurant restaurant = restaurantRepository.findById(restaurantId)
-                .orElseThrow(() -> new RuntimeException("Restaurant not found"));
+           .orElseThrow(() ->
+        new BookingNotFoundException("Booking not found"));
 
         booking.setRestaurant(restaurant);
 
@@ -67,7 +67,8 @@ public Booking getBooking(
 
     return bookingRepository.findByIdAndRestaurant_Id(
                     bookingId, restaurantId)
-            .orElseThrow(() -> new RuntimeException("Booking not found"));
+            .orElseThrow(() ->
+        new BookingNotFoundException("Booking not found"));
 }
     @PutMapping("/{bookingId}/status")
 
@@ -78,8 +79,8 @@ public Booking updateBookingStatus(
 
     Booking booking = bookingRepository.findByIdAndRestaurant_Id(
                     bookingId, restaurantId)
-            .orElseThrow(() -> new RuntimeException("Booking not found"));
-
+          .orElseThrow(() ->
+        new BookingNotFoundException("Booking not found"));
     if (status == null || status.isBlank()) {
         throw new ResponseStatusException(
                 HttpStatus.BAD_REQUEST, "Booking status is required");

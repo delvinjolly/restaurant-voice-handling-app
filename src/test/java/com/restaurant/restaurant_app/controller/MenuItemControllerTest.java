@@ -1,7 +1,8 @@
-
 package com.restaurant.restaurant_app.controller;
 
 import com.restaurant.restaurant_app.entity.MenuItem;
+import com.restaurant.restaurant_app.exception.MenuItemNotFoundException;
+import com.restaurant.restaurant_app.exception.RestaurantNotFoundException;
 import com.restaurant.restaurant_app.repository.MenuItemRepository;
 import com.restaurant.restaurant_app.repository.RestaurantRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,10 +16,10 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.ArgumentMatchers.any;
 
 @ExtendWith(MockitoExtension.class)
 class MenuItemControllerTest {
@@ -64,12 +65,26 @@ class MenuItemControllerTest {
                 .thenReturn(Optional.empty());
 
         assertThrows(
-                RuntimeException.class,
+                MenuItemNotFoundException.class,
                 () -> menuItemController.updateAvailability(2L, 10L, false)
         );
 
         verify(menuItemRepository)
                 .findByIdAndRestaurantId(10L, 2L);
+        verify(menuItemRepository, never()).save(any(MenuItem.class));
+    }
+
+    @Test
+    void addMenuItemRejectsMissingRestaurant() {
+        when(restaurantRepository.findById(999L))
+                .thenReturn(Optional.empty());
+
+        assertThrows(
+                RestaurantNotFoundException.class,
+                () -> menuItemController.addMenuItem(999L, new MenuItem())
+        );
+
+        verify(restaurantRepository).findById(999L);
         verify(menuItemRepository, never()).save(any(MenuItem.class));
     }
 }

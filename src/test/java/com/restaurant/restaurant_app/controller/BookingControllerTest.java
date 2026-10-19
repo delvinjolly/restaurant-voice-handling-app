@@ -1,5 +1,6 @@
 package com.restaurant.restaurant_app.controller;
 
+import com.restaurant.restaurant_app.exception.BookingNotFoundException;
 import com.restaurant.restaurant_app.entity.Booking;
 import com.restaurant.restaurant_app.repository.BookingRepository;
 import com.restaurant.restaurant_app.repository.RestaurantRepository;
@@ -17,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
 
 @ExtendWith(MockitoExtension.class)
 class BookingControllerTest {
@@ -67,9 +69,8 @@ class BookingControllerTest {
     void getBookingRejectsBookingFromAnotherRestaurant() {
         when(bookingRepository.findByIdAndRestaurant_Id(10L, 2L))
                 .thenReturn(Optional.empty());
-
-        assertThrows(
-                RuntimeException.class,
+                assertThrows(
+                BookingNotFoundException.class,
                 () -> bookingController.getBooking(2L, 10L)
         );
 
@@ -99,7 +100,7 @@ class BookingControllerTest {
                 .thenReturn(Optional.empty());
 
         assertThrows(
-                RuntimeException.class,
+                BookingNotFoundException.class,
                 () -> bookingController.updateBookingStatus(2L, 10L, "CONFIRMED")
         );
 
