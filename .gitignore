@@ -50,3 +50,11 @@ startup-log.txt
 
 # Temporary backup files
 *.bak
+
+# Maven and other backup files
+pom.xml.backup
+*.backup
+
+# Operating-system files
+.DS_Store
+Thumbs.db

@@ -9,6 +9,8 @@ import com.restaurant.restaurant_app.repository.MenuItemRepository;
 import com.restaurant.restaurant_app.repository.OrderRepository;
 import com.restaurant.restaurant_app.repository.RestaurantRepository;
 import com.restaurant.restaurant_app.session.OrderSessionManager;
+import com.restaurant.restaurant_app.entity.Order;
+import com.restaurant.restaurant_app.entity.OrderItem;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +23,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -176,6 +179,26 @@ class VoiceServiceTest {
                 com.restaurant.restaurant_app.entity.Order.class
         ));
     }
+@Test
+void invalidExtractedBookingTimeReturnsBookingError() {
+    VoiceRequest request =
+            createTestRequest("book a table tomorrow at 13 PM");
+
+    request.setBookingDate(LocalDate.now().plusDays(1).toString());
+    request.setNumberOfGuests(4);
+    // Leave bookingTime unset so the message parser is tested.
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_ERROR", response.getIntent());
+    assertEquals(
+            "Please provide the booking time.",
+            response.getMessage()
+    );
+
+    verify(bookingRepository, never()).save(any(Booking.class));
+}
+
  @Test
  void successfulBookingReturnsBookingConfirmed() {
         Restaurant restaurant = new Restaurant();
@@ -347,7 +370,42 @@ void bookingForTodayCanBeConfirmed() {
     assertEquals("BOOKING_CONFIRMED", response.getIntent());
     verify(bookingRepository).save(any(Booking.class));
 }
+@Test
+void addingUnavailableItemReturnsOrderError() {
+    Restaurant restaurant = new Restaurant();
 
+    MenuItem chickenBiriyani = new MenuItem();
+    chickenBiriyani.setId(1L);
+    chickenBiriyani.setName("Chicken Biriyani");
+    chickenBiriyani.setPrice(180.0);
+    chickenBiriyani.setAvailable(false);
+    chickenBiriyani.setRestaurant(restaurant);
+
+    Order currentOrder = new Order();
+    currentOrder.setRestaurant(restaurant);
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("PENDING");
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    when(menuItemRepository.findAll())
+            .thenReturn(List.of(chickenBiriyani));
+
+    VoiceRequest request =
+            createTestRequest("add chicken biriyani");
+
+    VoiceResponse response =
+            voiceService.handleVoice(request);
+
+    assertEquals("ORDER_ERROR", response.getIntent());
+    assertEquals(
+            "Chicken Biriyani is currently unavailable.",
+            response.getMessage()
+    );
+
+    verify(orderRepository, never()).save(any(Order.class));
+}
     private void assertQuantityError(
             String message,
             String expectedErrorMessage
@@ -395,4 +453,709 @@ void bookingForTodayCanBeConfirmed() {
 
         return request;
     }
+@Test
+void confirmingPendingOrderReturnsOrderConfirmed() {
+    Order currentOrder = new Order();
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("PENDING");
+    currentOrder.setTotalAmount(360.0);
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    VoiceResponse response =
+            voiceService.handleVoice(
+                    createTestRequest("confirm order")
+            );
+
+    assertEquals("ORDER_CONFIRMED", response.getIntent());
+    assertEquals("CONFIRMED", currentOrder.getStatus());
+
+    verify(orderRepository).save(currentOrder);
+}
+
+@Test
+void confirmingWithoutPendingOrderReturnsNoActiveOrder() {
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(null);
+
+    when(orderRepository
+            .findFirstByCustomerNameIgnoreCaseAndStatusOrderByIdDesc(
+                    "TestCustomer", "PENDING"))
+            .thenReturn(Optional.empty());
+
+    VoiceResponse response =
+            voiceService.handleVoice(
+                    createTestRequest("confirm order")
+            );
+
+    assertEquals("NO_ACTIVE_ORDER", response.getIntent());
+
+    verify(orderRepository, never()).save(any(Order.class));
+}
+
+@Test
+void cancellingPendingOrderReturnsOrderCancelled() {
+    Order currentOrder = new Order();
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("PENDING");
+    currentOrder.setTotalAmount(360.0);
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    VoiceResponse response =
+            voiceService.handleVoice(
+                    createTestRequest("cancel order")
+            );
+
+    assertEquals("ORDER_CANCELLED", response.getIntent());
+    assertEquals("CANCELLED", currentOrder.getStatus());
+
+    verify(orderRepository).save(currentOrder);
+    verify(orderSessionManager).removeCurrentOrder("TestCustomer");
+}
+
+@Test
+void cancellingWithoutPendingOrderReturnsNoActiveOrder() {
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(null);
+
+    when(orderRepository
+            .findFirstByCustomerNameIgnoreCaseAndStatusOrderByIdDesc(
+                    "TestCustomer", "PENDING"))
+            .thenReturn(Optional.empty());
+
+    VoiceResponse response =
+            voiceService.handleVoice(
+                    createTestRequest("cancel order")
+            );
+
+    assertEquals("NO_ACTIVE_ORDER", response.getIntent());
+
+    verify(orderRepository, never()).save(any(Order.class));
+    verify(orderSessionManager, never())
+            .removeCurrentOrder("TestCustomer");
+}
+
+@Test
+void cancellingConfirmedOrderReturnsOrderError() {
+    Order currentOrder = new Order();
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("CONFIRMED");
+    currentOrder.setTotalAmount(360.0);
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    VoiceResponse response =
+            voiceService.handleVoice(
+                    createTestRequest("cancel order")
+            );
+
+    assertEquals("ORDER_ERROR", response.getIntent());
+    assertEquals("CONFIRMED", currentOrder.getStatus());
+
+    verify(orderRepository, never()).save(any(Order.class));
+    verify(orderSessionManager, never())
+            .removeCurrentOrder("TestCustomer");
+}
+
+    @Test
+void removingItemNotInCurrentOrderReturnsOrderError() {
+    Restaurant restaurant = new Restaurant();
+
+    MenuItem chickenBiriyani = new MenuItem();
+    chickenBiriyani.setId(1L);
+    chickenBiriyani.setName("Chicken Biriyani");
+    chickenBiriyani.setPrice(180.0);
+    chickenBiriyani.setAvailable(true);
+    chickenBiriyani.setRestaurant(restaurant);
+
+    MenuItem porotta = new MenuItem();
+    porotta.setId(2L);
+    porotta.setName("Porotta");
+    porotta.setPrice(15.0);
+    porotta.setAvailable(true);
+    porotta.setRestaurant(restaurant);
+
+    Order currentOrder = new Order();
+    currentOrder.setRestaurant(restaurant);
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("PENDING");
+
+    OrderItem existingItem = new OrderItem();
+    existingItem.setOrder(currentOrder);
+    existingItem.setMenuItem(porotta);
+    existingItem.setQuantity(2);
+    existingItem.setPrice(15.0);
+
+    currentOrder.getItems().add(existingItem);
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    when(menuItemRepository.findAll())
+            .thenReturn(List.of(chickenBiriyani, porotta));
+
+    VoiceRequest request =
+            createTestRequest("remove chicken biriyani");
+
+    VoiceResponse response =
+            voiceService.handleVoice(request);
+
+    assertEquals("ORDER_ERROR", response.getIntent());
+    assertEquals(
+            "Chicken Biriyani is not in your current order.",
+            response.getMessage()
+    );
+
+    verify(orderRepository, never()).save(any(Order.class));
+}
+
+@Test
+void removingOneItemReducesQuantityAndRecalculatesTotal() {
+    Restaurant restaurant = new Restaurant();
+
+    MenuItem chickenBiriyani = new MenuItem();
+    chickenBiriyani.setId(1L);
+    chickenBiriyani.setName("Chicken Biriyani");
+    chickenBiriyani.setPrice(180.0);
+    chickenBiriyani.setAvailable(true);
+    chickenBiriyani.setRestaurant(restaurant);
+
+    Order currentOrder = new Order();
+    currentOrder.setRestaurant(restaurant);
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("PENDING");
+
+    OrderItem existingItem = new OrderItem();
+    existingItem.setOrder(currentOrder);
+    existingItem.setMenuItem(chickenBiriyani);
+    existingItem.setQuantity(3);
+    existingItem.setPrice(180.0);
+
+    currentOrder.getItems().add(existingItem);
+    currentOrder.setTotalAmount(540.0);
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    when(menuItemRepository.findAll())
+            .thenReturn(List.of(chickenBiriyani));
+
+    VoiceRequest request =
+            createTestRequest("remove 1 chicken biriyani");
+
+    VoiceResponse response =
+            voiceService.handleVoice(request);
+
+    assertEquals("ORDER_ITEM_REMOVED", response.getIntent());
+    assertEquals(2, existingItem.getQuantity());
+    assertEquals(360.0, currentOrder.getTotalAmount(), 0.001);
+
+    verify(orderRepository).save(currentOrder);
+    verify(orderSessionManager).setCurrentOrder(
+            "TestCustomer", currentOrder);
+}
+
+@Test
+void removingAllItemsLeavesEmptyOrderWithZeroTotal() {
+    Restaurant restaurant = new Restaurant();
+
+    MenuItem chickenBiriyani = new MenuItem();
+    chickenBiriyani.setId(1L);
+    chickenBiriyani.setName("Chicken Biriyani");
+    chickenBiriyani.setPrice(180.0);
+    chickenBiriyani.setAvailable(true);
+    chickenBiriyani.setRestaurant(restaurant);
+
+    Order currentOrder = new Order();
+    currentOrder.setRestaurant(restaurant);
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("PENDING");
+
+    OrderItem existingItem = new OrderItem();
+    existingItem.setOrder(currentOrder);
+    existingItem.setMenuItem(chickenBiriyani);
+    existingItem.setQuantity(3);
+    existingItem.setPrice(180.0);
+
+    currentOrder.getItems().add(existingItem);
+    currentOrder.setTotalAmount(540.0);
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    when(menuItemRepository.findAll())
+            .thenReturn(List.of(chickenBiriyani));
+
+    VoiceRequest request =
+            createTestRequest("remove 3 chicken biriyani");
+
+    VoiceResponse response =
+            voiceService.handleVoice(request);
+
+    assertEquals("ORDER_ITEM_REMOVED", response.getIntent());
+    assertTrue(currentOrder.getItems().isEmpty());
+    assertEquals(0.0, currentOrder.getTotalAmount(), 0.001);
+
+    verify(orderRepository).save(currentOrder);
+    verify(orderSessionManager).setCurrentOrder(
+            "TestCustomer", currentOrder);
+}
+
+@Test
+void removingItemFromConfirmedOrderReturnsOrderError() {
+    Restaurant restaurant = new Restaurant();
+
+    MenuItem chickenBiriyani = new MenuItem();
+    chickenBiriyani.setId(1L);
+    chickenBiriyani.setName("Chicken Biriyani");
+    chickenBiriyani.setPrice(180.0);
+    chickenBiriyani.setAvailable(true);
+    chickenBiriyani.setRestaurant(restaurant);
+
+    Order currentOrder = new Order();
+    currentOrder.setRestaurant(restaurant);
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("CONFIRMED");
+
+    OrderItem existingItem = new OrderItem();
+    existingItem.setOrder(currentOrder);
+    existingItem.setMenuItem(chickenBiriyani);
+    existingItem.setQuantity(2);
+    existingItem.setPrice(180.0);
+
+    currentOrder.getItems().add(existingItem);
+    currentOrder.setTotalAmount(360.0);
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    VoiceRequest request =
+            createTestRequest("remove chicken biriyani");
+
+    VoiceResponse response =
+            voiceService.handleVoice(request);
+
+    assertEquals("ORDER_ERROR", response.getIntent());
+    assertEquals(
+            "Your order cannot be modified because it is already confirmed.",
+            response.getMessage()
+    );
+    assertEquals(2, existingItem.getQuantity());
+    assertEquals(360.0, currentOrder.getTotalAmount(), 0.001);
+
+    verify(orderRepository, never()).save(any(Order.class));
+    verify(menuItemRepository, never()).findAll();
+}
+
+@Test
+void modifyingItemWithoutQuantityReturnsOrderError() {
+    Restaurant restaurant = new Restaurant();
+
+    MenuItem chickenBiriyani = new MenuItem();
+    chickenBiriyani.setId(1L);
+    chickenBiriyani.setName("Chicken Biriyani");
+    chickenBiriyani.setPrice(180.0);
+    chickenBiriyani.setAvailable(true);
+    chickenBiriyani.setRestaurant(restaurant);
+
+    Order currentOrder = new Order();
+    currentOrder.setRestaurant(restaurant);
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("PENDING");
+
+    OrderItem existingItem = new OrderItem();
+    existingItem.setOrder(currentOrder);
+    existingItem.setMenuItem(chickenBiriyani);
+    existingItem.setQuantity(2);
+    existingItem.setPrice(180.0);
+
+    currentOrder.getItems().add(existingItem);
+    currentOrder.setTotalAmount(360.0);
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    when(menuItemRepository.findAll())
+            .thenReturn(List.of(chickenBiriyani));
+
+    VoiceRequest request =
+        createTestRequest("change chicken biriyani");
+
+    VoiceResponse response =
+            voiceService.handleVoice(request);
+
+    assertEquals("ORDER_ERROR", response.getIntent());
+    assertEquals(
+            "Please specify the new quantity.",
+            response.getMessage()
+    );
+    assertEquals(2, existingItem.getQuantity());
+    assertEquals(360.0, currentOrder.getTotalAmount(), 0.001);
+
+    verify(orderRepository, never()).save(any(Order.class));
+    verify(orderSessionManager, never()).setCurrentOrder(
+            "TestCustomer", currentOrder);
+}
+
+@Test
+void modifyingItemToValidQuantityUpdatesOrderAndTotal() {
+    Restaurant restaurant = new Restaurant();
+
+    MenuItem chickenBiriyani = new MenuItem();
+    chickenBiriyani.setId(1L);
+    chickenBiriyani.setName("Chicken Biriyani");
+    chickenBiriyani.setPrice(180.0);
+    chickenBiriyani.setAvailable(true);
+    chickenBiriyani.setRestaurant(restaurant);
+
+    Order currentOrder = new Order();
+    currentOrder.setRestaurant(restaurant);
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("PENDING");
+
+    OrderItem existingItem = new OrderItem();
+    existingItem.setOrder(currentOrder);
+    existingItem.setMenuItem(chickenBiriyani);
+    existingItem.setQuantity(2);
+    existingItem.setPrice(180.0);
+
+    currentOrder.getItems().add(existingItem);
+    currentOrder.setTotalAmount(360.0);
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    when(menuItemRepository.findAll())
+            .thenReturn(List.of(chickenBiriyani));
+
+   VoiceRequest request =
+       createTestRequest("change chicken biriyani to 4");
+    VoiceResponse response =
+            voiceService.handleVoice(request);
+assertEquals("ORDER_UPDATED", response.getIntent());
+assertEquals(4, existingItem.getQuantity());
+assertEquals(720.0, currentOrder.getTotalAmount(), 0.001);
+
+verify(orderRepository).save(currentOrder);
+verify(orderSessionManager).setCurrentOrder(
+        "TestCustomer", currentOrder);
+}
+
+@Test
+void modifyingItemToHalfDozenUpdatesOrderAndTotal() {
+    Restaurant restaurant = new Restaurant();
+
+    MenuItem chickenBiriyani = new MenuItem();
+    chickenBiriyani.setId(1L);
+    chickenBiriyani.setName("Chicken Biriyani");
+    chickenBiriyani.setPrice(180.0);
+    chickenBiriyani.setAvailable(true);
+    chickenBiriyani.setRestaurant(restaurant);
+
+    Order currentOrder = new Order();
+    currentOrder.setRestaurant(restaurant);
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("PENDING");
+
+    OrderItem existingItem = new OrderItem();
+    existingItem.setOrder(currentOrder);
+    existingItem.setMenuItem(chickenBiriyani);
+    existingItem.setQuantity(2);
+    existingItem.setPrice(180.0);
+
+    currentOrder.getItems().add(existingItem);
+    currentOrder.setTotalAmount(360.0);
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    when(menuItemRepository.findAll())
+            .thenReturn(List.of(chickenBiriyani));
+
+    VoiceRequest request =
+            createTestRequest("change chicken biriyani to half dozen");
+
+    VoiceResponse response =
+            voiceService.handleVoice(request);
+
+    assertEquals("ORDER_UPDATED", response.getIntent());
+    assertEquals(6, existingItem.getQuantity());
+    assertEquals(1080.0, currentOrder.getTotalAmount(), 0.001);
+
+    verify(orderRepository).save(currentOrder);
+    verify(orderSessionManager).setCurrentOrder(
+            "TestCustomer", currentOrder);
+}
+
+@Test
+void modifyingItemToSpokenNumberUpdatesOrderAndTotal() {
+    Restaurant restaurant = new Restaurant();
+
+    MenuItem chickenBiriyani = new MenuItem();
+    chickenBiriyani.setId(1L);
+    chickenBiriyani.setName("Chicken Biriyani");
+    chickenBiriyani.setPrice(180.0);
+    chickenBiriyani.setAvailable(true);
+    chickenBiriyani.setRestaurant(restaurant);
+
+    Order currentOrder = new Order();
+    currentOrder.setRestaurant(restaurant);
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("PENDING");
+
+    OrderItem existingItem = new OrderItem();
+    existingItem.setOrder(currentOrder);
+    existingItem.setMenuItem(chickenBiriyani);
+    existingItem.setQuantity(2);
+    existingItem.setPrice(180.0);
+
+    currentOrder.getItems().add(existingItem);
+    currentOrder.setTotalAmount(360.0);
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    when(menuItemRepository.findAll())
+            .thenReturn(List.of(chickenBiriyani));
+
+    VoiceRequest request =
+            createTestRequest(
+                    "change chicken biriyani to three chicken biriyani");
+
+    VoiceResponse response =
+            voiceService.handleVoice(request);
+
+    assertEquals("ORDER_UPDATED", response.getIntent());
+    assertEquals(3, existingItem.getQuantity());
+    assertEquals(540.0, currentOrder.getTotalAmount(), 0.001);
+
+    verify(orderRepository).save(currentOrder);
+    verify(orderSessionManager).setCurrentOrder(
+            "TestCustomer", currentOrder);
+}
+
+@Test
+void modifyingItemToCoupleKeepsQuantityAtTwo() {
+    Restaurant restaurant = new Restaurant();
+
+    MenuItem chickenBiriyani = new MenuItem();
+    chickenBiriyani.setId(1L);
+    chickenBiriyani.setName("Chicken Biriyani");
+    chickenBiriyani.setPrice(180.0);
+    chickenBiriyani.setAvailable(true);
+    chickenBiriyani.setRestaurant(restaurant);
+
+    Order currentOrder = new Order();
+    currentOrder.setRestaurant(restaurant);
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("PENDING");
+
+    OrderItem existingItem = new OrderItem();
+    existingItem.setOrder(currentOrder);
+    existingItem.setMenuItem(chickenBiriyani);
+    existingItem.setQuantity(2);
+    existingItem.setPrice(180.0);
+
+    currentOrder.getItems().add(existingItem);
+    currentOrder.setTotalAmount(360.0);
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    when(menuItemRepository.findAll())
+            .thenReturn(List.of(chickenBiriyani));
+
+    VoiceRequest request =
+            createTestRequest("change chicken biriyani to couple");
+
+    VoiceResponse response =
+            voiceService.handleVoice(request);
+
+    assertEquals("ORDER_UPDATED", response.getIntent());
+    assertEquals(2, existingItem.getQuantity());
+    assertEquals(360.0, currentOrder.getTotalAmount(), 0.001);
+
+    verify(orderRepository).save(currentOrder);
+    verify(orderSessionManager).setCurrentOrder(
+            "TestCustomer", currentOrder);
+}
+@Test
+void modifyingItemToDozenUpdatesOrderAndTotal() {
+    Restaurant restaurant = new Restaurant();
+
+    MenuItem chickenBiriyani = new MenuItem();
+    chickenBiriyani.setId(1L);
+    chickenBiriyani.setName("Chicken Biriyani");
+    chickenBiriyani.setPrice(180.0);
+    chickenBiriyani.setAvailable(true);
+    chickenBiriyani.setRestaurant(restaurant);
+
+    Order currentOrder = new Order();
+    currentOrder.setRestaurant(restaurant);
+    currentOrder.setCustomerName("TestCustomer");
+    currentOrder.setStatus("PENDING");
+
+    OrderItem existingItem = new OrderItem();
+    existingItem.setOrder(currentOrder);
+    existingItem.setMenuItem(chickenBiriyani);
+    existingItem.setQuantity(2);
+    existingItem.setPrice(180.0);
+
+    currentOrder.getItems().add(existingItem);
+    currentOrder.setTotalAmount(360.0);
+
+    when(orderSessionManager.getCurrentOrder("TestCustomer"))
+            .thenReturn(currentOrder);
+
+    when(menuItemRepository.findAll())
+            .thenReturn(List.of(chickenBiriyani));
+
+    VoiceRequest request =
+            createTestRequest("change chicken biriyani to a dozen");
+
+    VoiceResponse response =
+            voiceService.handleVoice(request);
+
+    assertEquals("ORDER_UPDATED", response.getIntent());
+    assertEquals(12, existingItem.getQuantity());
+    assertEquals(2160.0, currentOrder.getTotalAmount(), 0.001);
+
+    verify(orderRepository).save(currentOrder);
+    verify(orderSessionManager).setCurrentOrder(
+            "TestCustomer", currentOrder);
+}
+
+@Test
+void bookingTimeTwelveAMIsParsedAsMidnight() {
+    Restaurant restaurant = new Restaurant();
+    LocalDate bookingDate = LocalDate.now().plusDays(1);
+    LocalTime bookingTime = LocalTime.MIDNIGHT;
+
+    when(bookingRepository
+            .existsByRestaurantIdAndBookingDateAndBookingTime(
+                    1L, bookingDate, bookingTime))
+            .thenReturn(false);
+
+    when(restaurantRepository.findById(1L))
+            .thenReturn(Optional.of(restaurant));
+
+    VoiceRequest request =
+            createTestRequest("book a table tomorrow at 12 AM");
+
+    request.setBookingDate(bookingDate.toString());
+    request.setNumberOfGuests(4);
+    // Intentionally do not set bookingTime.
+    // handleVoice() must extract "12 AM" from the message.
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_CONFIRMED", response.getIntent());
+
+    verify(bookingRepository).existsByRestaurantIdAndBookingDateAndBookingTime(
+            1L, bookingDate, LocalTime.MIDNIGHT);
+
+    verify(bookingRepository).save(any(Booking.class));
+}
+
+@Test
+void bookingWithNumberWordGuestsIsParsed() {
+    Restaurant restaurant = new Restaurant();
+    LocalDate bookingDate = LocalDate.now().plusDays(1);
+    LocalTime bookingTime = LocalTime.of(19, 30);
+
+    when(bookingRepository
+            .existsByRestaurantIdAndBookingDateAndBookingTime(
+                    1L, bookingDate, bookingTime))
+            .thenReturn(false);
+
+    when(restaurantRepository.findById(1L))
+            .thenReturn(Optional.of(restaurant));
+
+    VoiceRequest request =
+            createTestRequest("book a table for four people tomorrow at 7:30 PM");
+    request.setBookingDate(bookingDate.toString());
+    // Leave bookingTime and numberOfGuests unset for parsing.
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_CONFIRMED", response.getIntent());
+    verify(bookingRepository).save(any(Booking.class));
+}
+
+@Test
+void bookingWithNumericGuestCountIsParsed() {
+    Restaurant restaurant = new Restaurant();
+    LocalDate bookingDate = LocalDate.now().plusDays(1);
+    LocalTime bookingTime = LocalTime.of(19, 30);
+
+    when(bookingRepository
+            .existsByRestaurantIdAndBookingDateAndBookingTime(
+                    1L, bookingDate, bookingTime))
+            .thenReturn(false);
+
+    when(restaurantRepository.findById(1L))
+            .thenReturn(Optional.of(restaurant));
+
+    VoiceRequest request =
+            createTestRequest("book a table for 12 guests tomorrow at 7:30 PM");
+    request.setBookingDate(bookingDate.toString());
+    // Leave bookingTime and numberOfGuests unset for parsing.
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_CONFIRMED", response.getIntent());
+    verify(bookingRepository).save(any(Booking.class));
+    }
+@Test
+void bookingWithOnePersonIsParsed() {
+    Restaurant restaurant = new Restaurant();
+    LocalDate bookingDate = LocalDate.now().plusDays(1);
+    LocalTime bookingTime = LocalTime.of(19, 30);
+
+    when(bookingRepository
+            .existsByRestaurantIdAndBookingDateAndBookingTime(
+                    1L, bookingDate, bookingTime))
+            .thenReturn(false);
+
+    when(restaurantRepository.findById(1L))
+            .thenReturn(Optional.of(restaurant));
+
+    VoiceRequest request =
+            createTestRequest("book a table for one person tomorrow at 7:30 PM");
+    request.setBookingDate(bookingDate.toString());
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_CONFIRMED", response.getIntent());
+    verify(bookingRepository).save(any(Booking.class));
+}
+
+@Test
+void bookingWithTwoGuestsIsParsed() {
+    Restaurant restaurant = new Restaurant();
+    LocalDate bookingDate = LocalDate.now().plusDays(1);
+    LocalTime bookingTime = LocalTime.of(19, 30);
+
+    when(bookingRepository
+            .existsByRestaurantIdAndBookingDateAndBookingTime(
+                    1L, bookingDate, bookingTime))
+            .thenReturn(false);
+
+    when(restaurantRepository.findById(1L))
+            .thenReturn(Optional.of(restaurant));
+
+    VoiceRequest request =
+            createTestRequest("book a table for two guests tomorrow at 7:30 PM");
+    request.setBookingDate(bookingDate.toString());
+
+    VoiceResponse response = voiceService.handleVoice(request);
+
+    assertEquals("BOOKING_CONFIRMED", response.getIntent());
+    verify(bookingRepository).save(any(Booking.class));
+}
+
 }
